@@ -79,6 +79,16 @@ grep -r "component-scan" /home/devtrump/zx-projects/DC-API-2018 --include="*.xml
 
 ---
 
+### Step 4.5：提前 return 阻断检查（静态）
+
+针对 Service 方法被 Controller 调用的场景：
+
+1. 找到改动的 Service 方法里新增或保留的 `return` 语句
+2. 检查 Controller 中调用该 Service 方法后，是否还有赋值/字段操作
+3. **红线**：Service 在某分支提前 return，导致 Controller 后续对返回 Map 的操作（如 `result.put("experts", ...)`）被跳过，字段静默丢失
+
+典型案例：`findWorldCupTopicHome` Service 原来在 `show=false` 时直接 `return result`，导致 Controller 里 `result.put("experts", experts)` 永远不执行。
+
 ### Step 5：接口实现完整性检查（静态）
 
 若改动的类 `implements` 某接口：
@@ -91,11 +101,11 @@ grep -r "component-scan" /home/devtrump/zx-projects/DC-API-2018 --include="*.xml
 
 ### Step 6：PageHelper 线程安全检查（静态）
 
-`PageHelper.startPage()` 必须紧接着 DAO 查询，中间不能有 `if` / `try` / 其他查询插入。
+`PageHelper.startPage()` 必须紧接着 DAO 查询，中间不能插入其他 DAO 查询。
 
-扫描新增的 `PageHelper.startPage` 调用，检查紧接下一行是否为 DAO 查询。
+扫描新增的 `PageHelper.startPage` 调用，检查从 `startPage` 到第一个 DAO 调用之间，有没有**另一个 DAO 查询**插入（变量声明/空行可以有，别的 DAO 调用不行）。
 
-**红线**：`PageHelper.startPage()` 后隔着其他代码才查 → 分页参数泄漏到下一次请求。
+**红线**：`PageHelper.startPage()` 和目标 DAO 调用之间夹了其他 DAO 查询 → 分页参数被第一个查询消费掉，目标查询不分页。
 
 ---
 
@@ -110,7 +120,7 @@ cd /home/devtrump/zx-projects/DC-API-2018
 
 # 只编译改动所在模块，-am 编译依赖模块，--no-transfer-progress 去掉进度条
 # 识别改动文件所在模块（dc-service / dc-api / dc-dao 等）
-MODULE=$(git diff --name-only HEAD | head -1 | cut -d'/' -f1)
+MODULE=$(git diff --name-only HEAD | head -1 | cut -d'/' -f2)
 mvn compile -pl $MODULE -am --no-transfer-progress -q 2>&1 | tail -20
 ```
 
@@ -161,6 +171,7 @@ mvn compile -pl $MODULE -am --no-transfer-progress -q 2>&1 | tail -20
 | R5 | XML id 无对应 DAO 方法 | 运行时 BindingException |
 | R6 | 接口方法未实现 | 编译失败 |
 | R7 | PageHelper.startPage 后未紧接查询 | 分页参数泄漏，影响其他请求 |
+| R8 | Service 方法提前 return 阻断 Controller 后续逻辑 | Controller 在 Service 调用后的赋值/字段全部跳过，静默丢数据 |
 
 ---
 

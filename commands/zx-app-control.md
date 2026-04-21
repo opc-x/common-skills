@@ -39,6 +39,7 @@
 - **用户ID**: `514733`
 - **friend 域名**: `gopt777.92friend.com:5656`
 - **接口文档**: `C:/Users/DEVTrump/zx-projects/docs/球盟会-红单接口文档.md`
+- **friend 服务 product 值**: `at`（抓包明文验证，app requestData 里传的是 `"product":"at"`，不是 `"qm"`）
 
 ### 球亿（qy）
 - **包名**: `com.nj0sh.qg2dz.u0ao2`
@@ -91,39 +92,125 @@ mitmproxy 运行中时，列出本次操作触发的接口（方法+URL+关键�
 
 ## 抓包命令
 
-### 开始抓包（用户在独立终端执行）
+### 正确抓包流程（WSL2 + USB 连接真机）
 
-```powershell
-C:/Users/DEVTrump/AppData/Local/Programs/Python/Python312/Scripts/mitmdump.exe `
-  -p 8080 --flow-detail 0 `
-  -s C:/Users/DEVTrump/zx-projects/tools/app-intercept/filter.py `
-  -w C:/Users/DEVTrump/.claude/captures/session.flow
+**关键坑：不要用 PowerShell 或 Windows 命令，全程用 WSL Python 调 infra-mcp core 模块。**
+
+```python
+# WSL 环境，工作目录 /home/devtrump/gh-projects/infra-mcp/app-intercept
+from core import adb, capture
+from pathlib import Path
+import time
+
+# Step 1: 确认设备
+print(adb.devices())  # 应有 4DXGP7XGNNT8JZE6
+
+# Step 2: 设置 adb reverse（USB 连接时必须，否则手机代理到 10.255.255.254 不通）
+import subprocess
+ADB = "/mnt/c/Users/DEVTrump/AppData/Local/Microsoft/WinGet/Packages/Google.PlatformTools_Microsoft.Winget.Source_8wekyb3d8bbwe/platform-tools/adb.exe"
+subprocess.run([ADB, "-s", "4DXGP7XGNNT8JZE6", "reverse", "tcp:8080", "tcp:8080"])
+
+# Step 3: 启动 mitmdump
+flow = Path('/home/devtrump/.claude/captures/session_xxx.flow')
+pid = capture.start(flow_path=flow, port=8080)
+
+# Step 4: 设置手机代理（127.0.0.1 走 adb reverse）
+adb.shell("settings put global http_proxy 127.0.0.1:8080")
+
+# Step 5: 操作 app 触发请求
+adb.launch("com.o763r.d68.rd0hy", None)
+time.sleep(8)
+# ...界面操作...
+
+# Step 6: 停止抓包，清除代理
+capture.stop()
+adb.shell("settings put global http_proxy :0")
+```
+
+**已知坑和排查手册：**
+
+| 现象 | 原因 | 解决 |
+|------|------|------|
+| flow 文件为 0 字节 / 几乎没流量 | **手机代理没配好**，最常见坑。mitmdump 在跑但手机流量没经过它 | 先 `adb reverse tcp:8080 tcp:8080`，再 `adb.shell("settings put global http_proxy 127.0.0.1:8080")`，**USB 连接必须走这套，不能用机器 IP** |
+| 截图/dump UI 报 cannot create file | `adb.exe` 是 Windows 进程，不能写 `/home/...` Linux 路径 | 已在 `core/adb.py` 中用 `wslpath -w` 自动转 UNC 路径，无需手动处理 |
+| filter.py not found | `C:/Users/DEVTrump/zx-projects/` 和 WSL `/home/devtrump/zx-projects/` 是两个不同目录 | 弃用 filter.py，全程用 core 模块，不传 `-s` 参数给 mitmdump |
+| 抓到全是加密/乱码 | mitmproxy 证书未装系统级，或 SSL Pinning | 先检查证书；SSL Pinning 用 objection 绕过 |
+
+**每次抓包前必查：**
+```python
+from core import adb
+# 1. 确认代理设置正确
+print(adb.shell("settings get global http_proxy"))  # 应为 127.0.0.1:8080
+# 2. 确认 adb reverse 在
+import subprocess
+ADB = "/mnt/c/Users/DEVTrump/AppData/Local/Microsoft/WinGet/Packages/Google.PlatformTools_Microsoft.Winget.Source_8wekyb3d8bbwe/platform-tools/adb.exe"
+subprocess.run([ADB, "-s", "4DXGP7XGNNT8JZE6", "reverse", "--list"])  # 应有 tcp:8080 tcp:8080
 ```
 
 ### SSL Pinning 绕过
 
-```powershell
-# 列出进程找 PID
-C:/Users/DEVTrump/AppData/Local/Programs/Python/Python312/Scripts/frida-ps.exe -U
+```python
+# 列出进程找 PID（需要 frida）
+import subprocess
+subprocess.run(["frida-ps", "-U"])
 
 # objection 绕过
-C:/Users/DEVTrump/AppData/Local/Programs/Python/Python312/Scripts/objection.exe -g <package> explore
+subprocess.run(["objection", "-g", "<package>", "explore"])
 # 进入后输入：android sslpinning disable
 ```
 
-### 导出抓包结果
+### 导出抓包结果（含 requestData 自动解密）
 
-```powershell
-C:/Users/DEVTrump/AppData/Local/Programs/Python/Python312/python.exe -c "
-import mitmproxy.io
+friend 服务接口的 `requestData` 参数是 AES-128-CBC 加密的，导出时自动解密明文。
+
+```python
+# 保存为临时脚本执行，或直接用 python3 -c 运行
+import mitmproxy.io, urllib.parse, base64, json
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
+
+KEY = b'smkldospdosldaaa'
+IV  = b'0000000000000000'
+
+def decrypt_request_data(encoded):
+    try:
+        raw = base64.b64decode(urllib.parse.unquote(encoded))
+        cipher = Cipher(algorithms.AES(KEY), modes.CBC(IV), backend=default_backend())
+        dec = cipher.decryptor()
+        plain = dec.update(raw) + dec.finalize()
+        # 去掉 PKCS5 padding
+        pad = plain[-1]
+        plain = plain[:-pad]
+        return json.loads(plain.decode('utf-8'))
+    except Exception as e:
+        return f'[解密失败: {e}]'
+
 with open('C:/Users/DEVTrump/.claude/captures/session.flow', 'rb') as f:
     for flow in mitmproxy.io.FlowReader(f).stream():
-        ct = flow.response.headers.get('content-type','') if flow.response else ''
-        if 'json' in ct or '/api/' in flow.request.path:
-            print(flow.request.method, flow.request.pretty_url)
-            if flow.response: print(' ->', flow.response.status_code)
-            print()
-"
+        if not flow.response:
+            continue
+        url = flow.request.pretty_url
+        if '/api/' not in url and 'friend' not in url:
+            continue
+        print(f'\n{flow.request.method} {url}')
+        # 解密 requestData
+        body = flow.request.get_text(strict=False) or ''
+        for part in body.split('&'):
+            if part.startswith('requestData='):
+                encoded = part[len('requestData='):]
+                plain = decrypt_request_data(encoded)
+                print(f'  requestData(明文): {json.dumps(plain, ensure_ascii=False)}')
+        print(f'  -> {flow.response.status_code}')
+        try:
+            resp = json.loads(flow.response.get_text())
+            print(f'  响应: {json.dumps(resp, ensure_ascii=False)[:300]}')
+        except:
+            pass
+```
+
+**直接命令行版（快速用）：**
+```powershell
+C:/Users/DEVTrump/AppData/Local/Programs/Python/Python312/python.exe C:/Users/DEVTrump/zx-projects/tools/app-intercept/decode_flow.py
 ```
 
 ---
