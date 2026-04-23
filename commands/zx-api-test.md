@@ -8,32 +8,47 @@ Test an HTTP API endpoint and display the response.
 
 ## How to execute
 
-Use PowerShell `Invoke-WebRequest` or `Invoke-RestMethod`:
+Use `curl` (WSL2/Linux environment — do NOT use powershell.exe):
 
 ### GET request
-```powershell
-powershell.exe -Command "
-try {
-  \$r = Invoke-RestMethod -Uri '<url>' -Method GET -TimeoutSec 15
-  \$r | ConvertTo-Json -Depth 5
-} catch {
-  Write-Host \"Status: \$(\$_.Exception.Response.StatusCode.value__)\"
-  Write-Host \$_.ErrorDetails.Message
-}
+```bash
+curl -sk '<url>' -w "\nHTTP_STATUS:%{http_code}" --connect-timeout 15 | python3 -c "
+import sys, json
+raw = sys.stdin.read()
+body, status = raw.rsplit('HTTP_STATUS:', 1)
+print(f'HTTP {status.strip()}')
+try: print(json.dumps(json.loads(body), indent=2, ensure_ascii=False))
+except: print(body[:2000])
 "
 ```
 
 ### POST request with JSON body
-```powershell
-powershell.exe -Command "
-\$body = '<json_body>' | ConvertFrom-Json | ConvertTo-Json
-try {
-  \$r = Invoke-RestMethod -Uri '<url>' -Method POST -Body \$body -ContentType 'application/json' -TimeoutSec 15
-  \$r | ConvertTo-Json -Depth 5
-} catch {
-  Write-Host \"Status: \$(\$_.Exception.Response.StatusCode.value__)\"
-  Write-Host \$_.ErrorDetails.Message
-}
+```bash
+curl -sk -X POST '<url>' \
+  -H 'Content-Type: application/json' \
+  -d '<json_body>' \
+  -w "\nHTTP_STATUS:%{http_code}" --connect-timeout 15 | python3 -c "
+import sys, json
+raw = sys.stdin.read()
+body, status = raw.rsplit('HTTP_STATUS:', 1)
+print(f'HTTP {status.strip()}')
+try: print(json.dumps(json.loads(body), indent=2, ensure_ascii=False))
+except: print(body[:2000])
+"
+```
+
+### POST request with form body (application/x-www-form-urlencoded)
+```bash
+curl -sk -X POST '<url>' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data '<key=value&key2=value2>' \
+  -w "\nHTTP_STATUS:%{http_code}" --connect-timeout 15 | python3 -c "
+import sys, json
+raw = sys.stdin.read()
+body, status = raw.rsplit('HTTP_STATUS:', 1)
+print(f'HTTP {status.strip()}')
+try: print(json.dumps(json.loads(body), indent=2, ensure_ascii=False))
+except: print(body[:2000])
 "
 ```
 
@@ -57,7 +72,8 @@ try {
 ```
 
 ## Notes
-- If the URL uses HTTPS with self-signed cert, add `-SkipCertificateCheck` flag
+- Always use `curl -sk` for HTTPS with self-signed certs (`-k` skips cert check, `-s` silent mode)
 - For large responses, show first 2000 chars and summarize the rest
 - Always display HTTP status code prominently
 - If response is `{}` (empty object), flag it as likely an error and suggest checking logs with /ssh-log or /log-search
+- **AES-encrypted form body**: if requestData is already URL-encoded (from `urllib.parse.quote`), use `--data` NOT `--data-urlencode`. Using `--data-urlencode` on a pre-encoded value causes double-encoding → backend SQL injection interceptor receives null → NPE
