@@ -99,7 +99,29 @@ grep -r "component-scan" /home/devtrump/zx-projects/DC-API-2018 --include="*.xml
 
 ---
 
-### Step 6：PageHelper 线程安全检查（静态）
+### Step 6：MyBatis MERGE INTO jdbcType 检查（静态）
+
+MyBatis 动态标签（`<if>`）**不能**嵌入 MERGE INTO 语句内部。凡是新增的 `MERGE INTO ... WHEN NOT MATCHED THEN INSERT` 语句：
+
+1. 扫描 VALUES 子句和 USING SELECT 子句中所有 `#{param}` 占位符
+2. 检查每个占位符是否声明了 `jdbcType`
+3. 特别关注可为 null 的字段：Date/Timestamp 类型的参数（如 expiredDate、createTime）、可选字符串、可选数字
+4. **红线**：MERGE INTO 中存在未声明 jdbcType 的可 null 参数 → Oracle 运行时抛 `Invalid column type: 1111`
+
+```
+# 快速扫描：找 MERGE INTO 块内未带 jdbcType 的 #{} 占位符
+grep -A50 "MERGE INTO" *Dao.xml | grep "#{" | grep -v "jdbcType"
+```
+
+典型修复：
+```xml
+-- 错误（null 时报 1111）
+#{topicStatus.expiredDate}
+-- 正确
+#{topicStatus.expiredDate,jdbcType=TIMESTAMP}
+```
+
+### Step 7：PageHelper 线程安全检查（静态）
 
 `PageHelper.startPage()` 必须紧接着 DAO 查询，中间不能插入其他 DAO 查询。
 
@@ -172,6 +194,7 @@ mvn compile -pl $MODULE -am --no-transfer-progress -q 2>&1 | tail -20
 | R6 | 接口方法未实现 | 编译失败 |
 | R7 | PageHelper.startPage 后未紧接查询 | 分页参数泄漏，影响其他请求 |
 | R8 | Service 方法提前 return 阻断 Controller 后续逻辑 | Controller 在 Service 调用后的赋值/字段全部跳过，静默丢数据 |
+| R9 | MERGE INTO VALUES 中有未声明 jdbcType 的可 null 参数 | Oracle 运行时 `Invalid column type: 1111` |
 
 ---
 
