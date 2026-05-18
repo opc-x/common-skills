@@ -29,3 +29,4 @@ ln -s $(pwd)/commands/<skill>.md /path/to/project/.claude/commands/<skill>.md
 | `/zx-outlook` | Read/send email via Outlook/OWA |
 | `/zx-ssh-log` | SSH log fetching via JumpServer |
 | `/zx-weekly-report` | Weekly report update |
+| `/v0` | v0 全能工作流：UI生成/Figma/Design Mode/省credits策略 |
