@@ -1,0 +1,182 @@
+# cursor — 全自动派发 issule 给 Cursor 并行执行
+
+读取指定 issule，用 cursor agent CLI 并行启动，每个 agent 独立 worktree 执行，结果自动 POST 回 issule comment（含模型标注）。
+
+## 使用方式
+
+```
+/cursor #N                  # 派发单个 issule
+/cursor #N #M #K            # 批量派发，N个 agent 并行
+/cursor #N <repo>           # 指定仓库（默认读当前 git remote）
+/cursor #N --model sonnet-4 # 指定模型
+```
+
+---
+
+## 执行协议
+
+### Step 0 — Auth 预检（必须先通过）
+
+```bash
+CURSOR=/Applications/Cursor.app/Contents/Resources/app/bin/cursor
+$CURSOR agent -p --yolo --workspace /tmp "echo auth_ok" 2>&1
+```
+
+若输出含 "Authentication required"，立即停止并输出：
+
+```
+❌ Cursor Agent 未登录，无法派发任务。
+
+解决方案（选一）：
+  方式1：! cursor agent login        （交互登录）
+  方式2：! export CURSOR_API_KEY=xxx  （API Key，永久有效建议加到 ~/.zshrc）
+
+登录后重新执行 /cursor #N #M ...
+```
+
+**不继续执行 Step 1。**
+
+---
+
+### Step 1 — 读取所有指定 issule
+
+用 `mcp__github__get_issue` 逐个读取，提取：
+- issue URL
+- issue 标题
+- body 中的「执行步骤」段落
+
+---
+
+### Step 2 — 并行启动 Cursor Agent
+
+为每个 issule 后台启动一个 agent（`&`）：
+
+```bash
+CURSOR=/Applications/Cursor.app/Contents/Resources/app/bin/cursor
+REPO="HcPittBrad/talkflow"          # 从 git remote 读取
+WORKSPACE="/path/to/project"        # 当前项目路径
+MODEL="claude-sonnet-4-5"           # 执行模型
+
+$CURSOR agent -p --yolo \
+  --worktree \
+  --workspace "$WORKSPACE" \
+  --model "$MODEL" \
+  "读取并完整执行这个 GitHub issue 的所有步骤：https://github.com/$REPO/issues/N
+
+执行规则：
+1. 完整读取 issue body，严格按照「执行步骤」逐步完成
+2. 每步完成后对照验收标准自检
+3. Out of scope 内容只记录不执行
+4. 全部步骤完成后，必须用以下命令将报告 POST 到 issue comment：
+
+gh api repos/$REPO/issues/N/comments -X POST -f body='## 执行报告
+
+🤖 **执行模型：** Cursor Agent ($MODEL)
+📋 **派发模型：** Claude (master)
+
+**状态：** ✅ 完成 / ❌ 失败
+
+**做了什么：**
+[列出每步完成情况]
+
+**T1 数字化验收：**
+[每条命令的实际结果 vs 期望值]
+
+**T2 AI推理验收：**
+[判断结果 + 置信度]
+
+**T3 待人工确认：**
+[无 / 或精确操作步骤]'
+
+POST 成功才算交付完成。" > /tmp/cursor-issue-N.log 2>&1 &
+```
+
+**关键：**
+- `--worktree` 不传自定义名（让 Cursor 自动生成，避免斜杠报错）
+- 日志写到 `/tmp/cursor-issue-N.log`，N 为 issue 编号
+
+所有 agent 启动后：
+```bash
+wait
+echo "所有 agent 完成"
+```
+
+---
+
+### Step 3 — 汇总输出
+
+```
+🚀 已并行启动 N 个 Cursor Agent (claude-sonnet-4-5)
+
+Agent 1 → #N [title] — 独立 worktree 执行中
+Agent 2 → #M [title] — 独立 worktree 执行中
+Agent 3 → #K [title] — 独立 worktree 执行中
+
+每个 agent 完成后自动 POST 执行报告到对应 issue。
+完成后运行：/issule-verify #N #M #K
+```
+
+---
+
+## 模型标注规范
+
+每个 issue comment 必须包含这两行（Claude 直接执行时也一样）：
+
+```
+🤖 执行模型：Cursor Agent (claude-sonnet-4-5)
+📋 派发模型：Claude (master)
+```
+
+若 Claude 自己代劳执行（Cursor 不可用时）：
+```
+🤖 执行模型：Claude (claude-sonnet-4-6) [fallback]
+📋 派发模型：Claude (master)
+```
+
+---
+
+## 完整工作流
+
+```
+Claude (master)                    Cursor (slave agents)
+──────────────────                 ─────────────────────
+/browser → 巡检所有页面
+    ↓
+/issule-goal → 开单（含T1/T2/T3）
+    ↓
+/cursor #N #M #K ──────────────→  agent-1: #N 独立 worktree
+                 ──────────────→  agent-2: #M 独立 worktree
+                 ──────────────→  agent-3: #K 独立 worktree
+                                     ↓ (POST report 含模型标注)
+/issule-verify #N #M #K
+    ↓
+YES → gh issue close #N #M #K
+NO  → /cursor 重跑失败项
+```
+
+---
+
+## 前提条件（一次性设置）
+
+```bash
+# 方式1：交互登录（浏览器授权）
+! cursor agent login
+
+# 方式2：API Key（更稳定，推荐）
+! echo 'export CURSOR_API_KEY=your_key' >> ~/.zshrc && source ~/.zshrc
+```
+
+API Key 在 Cursor 设置页面 → Account → API Keys 获取。
+
+---
+
+## 参数说明
+
+| 参数 | 作用 |
+|------|------|
+| `-p` / `--print` | 非交互模式，脚本可调用 |
+| `--yolo` | 自动批准所有操作 |
+| `--worktree` | 独立 git worktree（不传名，自动生成） |
+| `--workspace` | 项目绝对路径 |
+| `--model` | 执行模型，默认 claude-sonnet-4-5 |
+| `&` | 后台并行，不阻塞主进程 |
