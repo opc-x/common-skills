@@ -10,9 +10,22 @@
 ## 调用方式
 
 ```
-/issule-verify #N        # 验收指定 issue（默认 talkflow repo）
-/issule-verify #N <repo> # 指定仓库
+/issule-verify #N              # 验收单个 issue
+/issule-verify #N <repo>       # 指定仓库
+/issule-verify master #N       # 验收 master-issue #N 的所有 child-issues
+/issule-verify master #N <repo># 指定仓库
 ```
+
+`master #N` 模式执行逻辑：
+1. 读取 master-issue AC 作为全局验收锚点
+2. 拉取所有关联 child-issues（body 含 `master-issue: #N`）：
+   ```bash
+   gh issue list --repo $REPO --label child-issue --state open \
+     --json number,body --jq '[.[] | select(.body | contains("master-issue: #N"))]'
+   ```
+3. 逐个对照 child-issue 自身 AC+DoD 验收
+4. 所有通过 → 关闭 child-issues + 关闭 master-issue，写汇总 comment
+5. 有失败 → 写失败清单到 master-issue comment，等人确认重跑
 
 ---
 

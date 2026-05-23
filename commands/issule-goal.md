@@ -1,4 +1,11 @@
-# issule-goal — 目标 → 可执行 Issue
+# issule-goal — ⚠️ 已废弃，请使用 /issue
+
+> 此 skill 已重构为 `/issue`，支持 AC+DoD 结构 + master-issue 上下文继承。
+> 直接执行 `/issue` 即可，参数兼容。
+
+---
+
+# issue — 单个 child-issue 创建（原 issule-goal）
 
 **适用于任何类型任务。人只做两件事：提目标 + 确认标题。其余全是 agent 的事。**
 

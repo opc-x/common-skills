@@ -5,11 +5,49 @@
 ## 使用方式
 
 ```
-/cursor #N                  # 派发单个 issule
-/cursor #N #M #K            # 批量派发，N个 agent 并行
-/cursor #N <repo>           # 指定仓库（默认读当前 git remote）
-/cursor #N --model sonnet-4 # 指定模型
+/cursor #N                        # 派发单个 issue（默认 composer-2.5）
+/cursor #N #M #K                  # 批量派发，N个 agent 并行
+/cursor #N <repo>                 # 指定仓库（默认读当前 git remote）
+/cursor #N --model high           # 强制高配模型（claude-opus-4-7）
+/cursor #N --model composer       # 强制 composer-2.5（默认）
+/cursor --label child-issue       # 派发当前 repo 所有 open child-issues
+/cursor --master #N               # 派发 master-issue #N 的所有 open child-issues
 ```
+
+`--label child-issue` 模式：
+```bash
+gh issue list --repo $REPO --label child-issue --state open \
+  --json number --jq '.[].number'
+```
+取出所有编号后并行派发，等同于 `/cursor #N1 #N2 ...`
+
+---
+
+## 模型路由策略
+
+**默认：composer-2.5**（CursorBench #3，$0.55/task，性价比最高）
+
+```
+读取 issue 标题 + body
+        │
+        ▼
+包含以下关键词？
+重构/refactor/migration/数据库迁移/架构/破坏性/不可逆
+        │
+   YES  │  NO
+        │   └──→ composer-2.5（默认，$0.55）
+        ▼
+  claude-opus-4-7（$11.02，最准）
+  派发前输出提示：
+  ⚠️ 检测到高风险任务，已切换 Opus，预计成本 $X
+```
+
+| 模型 | CursorBench | 成本/task | 适用场景 |
+|------|-------------|-----------|---------|
+| `composer-2.5` | 63.2% | $0.55 | 日常功能·bug修复·小重构 |
+| `claude-opus-4-7` | 64.8% | $11.02 | 大型重构·破坏性迁移·架构变更 |
+
+手动覆盖用 `--model high`（Opus）或 `--model composer`（默认）。
 
 ---
 
@@ -55,7 +93,7 @@ $CURSOR agent -p --yolo --workspace /tmp "echo auth_ok" 2>&1
 CURSOR=/Applications/Cursor.app/Contents/Resources/app/bin/cursor
 REPO="HcPittBrad/talkflow"          # 从 git remote 读取
 WORKSPACE="/path/to/project"        # 当前项目路径
-MODEL="claude-sonnet-4-5"           # 执行模型
+MODEL="composer-2.5"                # 默认：性价比最高（见模型路由策略）
 
 $CURSOR agent -p --yolo \
   --worktree \
@@ -76,16 +114,18 @@ gh api repos/$REPO/issues/N/comments -X POST -f body='## 执行报告
 
 **状态：** ✅ 完成 / ❌ 失败
 
-**做了什么：**
-[列出每步完成情况]
+**执行步骤完成情况：**
+[每步 ✅/❌ + 一句话说明]
 
-**T1 数字化验收：**
-[每条命令的实际结果 vs 期望值]
+**AC 验收（对照 issue AC）：**
+[每条 AC: ✅通过 / ❌未通过 + 实际结果]
 
-**T2 AI推理验收：**
-[判断结果 + 置信度]
+**DoD 验收：**
+- tsc --noEmit → [结果]
+- npm run lint → [结果]
+- [其他 DoD 条件 → 结果]
 
-**T3 待人工确认：**
+**需人工确认（如有）：**
 [无 / 或精确操作步骤]'
 
 POST 成功才算交付完成。" > /tmp/cursor-issue-N.log 2>&1 &
