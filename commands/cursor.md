@@ -66,10 +66,8 @@ AC：[每条 ✅/❌ + 实际结果]
 DoD：tsc=[结果] lint=[结果]"
 EOF
 
-  $CURSOR agent -p --yolo \
-    --model composer-2.5 \
-    --workspace "$WORKSPACE" \
-    "$(cat /tmp/cursor-prompt-$NUM.txt)" > /tmp/cursor-$NUM.log 2>&1 &
+  (cd "$WORKSPACE" && $CURSOR agent -p --yolo \
+    "$(cat /tmp/cursor-prompt-$NUM.txt)") > /tmp/cursor-$NUM.log 2>&1 &
 
   sleep 1   # 错开启动，避免 cursor cli-config race condition
   COUNT=$((COUNT + 1))
