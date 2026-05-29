@@ -3,7 +3,7 @@
 **适用于任何类型任务。以 issule-goal 定义的三重验证退出条件为唯一锚点。**
 **人只做一件事：执行 T3 步骤并回报结果。**
 
-遵循 [output-protocol.md](./output-protocol.md) LAW1。
+遵循全局 OUTPUT PROTOCOL LAW1：结论先行、闭环再输出。
 
 ---
 
@@ -11,6 +11,8 @@
 
 ```
 /issule-verify #N              # 验收单个 issue
+/issule-verify #N #M #K        # 批量验收多个 issue（逐个走完整流程 + 末尾汇总）
+/issule-verify --label <标签>  # 按业务标签批量验收所有 open issue（对齐 /cursor --label）
 /issule-verify #N <repo>       # 指定仓库
 /issule-verify master #N       # 验收 master-issue #N 的所有 child-issues
 /issule-verify master #N <repo># 指定仓库
@@ -20,12 +22,30 @@
 1. 读取 master-issue AC 作为全局验收锚点
 2. 拉取所有关联 child-issues（body 含 `master-issue: #N`）：
    ```bash
-   gh issue list --repo $REPO --label child-issue --state open \
-     --json number,body --jq '[.[] | select(.body | contains("master-issue: #N"))]'
+   gh issue list --repo "$REPO" --label child-issue --state open --json number,body \
+     --jq "[.[] | select(.body | contains(\"master-issue: #$N\"))]"   # $N 必须是实际编号，jq 单引号内 #N 不会展开
    ```
 3. 逐个对照 child-issue 自身 AC+DoD 验收
 4. 所有通过 → 关闭 child-issues + 关闭 master-issue，写汇总 comment
 5. 有失败 → 写失败清单到 master-issue comment，等人确认重跑
+
+`#N #M #K` 多编号模式执行逻辑：
+1. 对每个编号独立走完整 Phase 1–5，各自 POST 验收报告到对应 issue
+2. 全部跑完后，末尾追加一条批量汇总：
+   ```markdown
+   ## 批量验收汇总（N 个）
+   | Issue | 标题 | 判定 |
+   |-------|------|------|
+   | #N | [title] | ✅ YES / ❌ NO |
+   ```
+3. 全部 YES → 提示可逐个关闭；有 NO → 列出失败编号，建议 `/cursor #失败编号` 重跑
+
+`--label <标签>` 模式执行逻辑：
+1. 按标签拉取所有 open issue 编号：
+   ```bash
+   gh issue list --repo "$REPO" --label "$LABEL" --state open --json number --jq '.[].number'
+   ```
+2. 转入上面的多编号模式：逐个走完整 Phase 1–5 + 末尾批量汇总
 
 ---
 

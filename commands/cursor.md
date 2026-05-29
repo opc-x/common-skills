@@ -48,6 +48,11 @@ WORKSPACE=$(git rev-parse --show-toplevel)
 ```bash
 BATCH_SIZE=16
 COUNT=0
+# 单 agent 超时保护：防某个 agent hang 住导致整批 wait 永久死锁。
+# 有 timeout/gtimeout 才生效（macOS 需 brew install coreutils 提供 gtimeout）
+if command -v timeout >/dev/null; then TO="timeout 1800";
+elif command -v gtimeout >/dev/null; then TO="gtimeout 1800";
+else TO=""; fi
 
 for NUM in "${ISSUE_NUMS[@]}"; do
   cat > /tmp/cursor-prompt-$NUM.txt << EOF
@@ -66,7 +71,7 @@ AC：[每条 ✅/❌ + 实际结果]
 DoD：tsc=[结果] lint=[结果]"
 EOF
 
-  (cd "$WORKSPACE" && $CURSOR agent -p --yolo \
+  (cd "$WORKSPACE" && $TO $CURSOR agent -p --yolo \
     "$(cat /tmp/cursor-prompt-$NUM.txt)") > /tmp/cursor-$NUM.log 2>&1 &
 
   sleep 1   # 错开启动，避免 cursor cli-config race condition
@@ -85,9 +90,14 @@ echo "all done"
 
 ### Step 3 — 读取结果，创建 result issue
 
-每个 agent 完成后日志落在 `/tmp/cursor-$NUM.log`。判断状态：
-- log 含 `DONE` → ✅
-- log 含 `FAILED` 或为空 → ❌（提取 log 最后 5 行作为失败原因）
+agent 把执行报告 POST 到 issue comment（见 Step 2 prompt），**状态以 issue 最新 comment 的报告为准**，stdout log 仅作失败兜底（log 里不保证含状态字样）：
+
+```bash
+# 读最新 comment 判状态
+BODY=$(gh issue view $NUM --repo "$REPO" --json comments --jq '.comments[-1].body // ""')
+```
+- comment 含 `状态：DONE` → ✅
+- comment 含 `状态：FAILED` / 无执行报告 comment → ❌（取 `/tmp/cursor-$NUM.log` 最后 5 行作失败原因；log 为空则记「agent 无输出，疑似启动失败/超时」）
 
 调用 `mcp__github__create_issue` 创建汇总 issue：
 

@@ -7,10 +7,11 @@ solo 场景（无 master-issue）也可用。
 ## 使用方式
 
 ```
-/issue "描述" #master-N     # 基于 master-issue 创建 child
-/issue "描述"               # solo 场景，不挂载 master
-/issue "描述" <repo>        # 指定仓库
-/issue "描述" dry           # 只输出草稿
+/issue "描述" #master-N           # 基于 master-issue 创建 child
+/issue "描述"                     # solo 场景，不挂载 master
+/issue "描述" --label <业务标签>  # 追加业务标签（活的，供后续 /cursor /issule-verify 按标签批量捞）
+/issue "描述" <repo>              # 指定仓库
+/issue "描述" dry                 # 只输出草稿
 ```
 
 ---
@@ -29,7 +30,7 @@ solo 场景（无 master-issue）也可用。
 
 ---
 
-### Step 2 — 锁标题
+### Step 2 — 锁标题（人工确认 🔔）
 
 格式：`{emoji} {类型}: {业务描述（≤20字）}`
 
@@ -37,24 +38,11 @@ solo 场景（无 master-issue）也可用。
 emoji: 🔴 主流程阻断 · 🟡 核心缺失 · 🟢 体验提升 · 🔵 维护/重构 · 🟣 探索
 ```
 
-输出：
-```
-🎯 标题提案：[emoji] [type]: [描述]
-确认即创建；要改直接说。
-```
-
-等用户确认标题。
-
----
-
-### Step 2.5 — 人工确认标题 🔔
-
+输出后等用户确认，确认才执行 Step 3：
 ```
 🎯 标题提案：[emoji] [type]: [描述]
 确认即写正文；要改直接说。
 ```
-
-等用户确认后执行 Step 3。
 
 ### Step 3 — 生成 issue body
 
@@ -70,7 +58,7 @@ emoji: 🔴 主流程阻断 · 🟡 核心缺失 · 🟢 体验提升 · 🔵 �
 
 [一句话：让什么从「不存在/不正确」变成「存在/正确」]
 
-[有 master-issue 时] master-issue: #N
+[有 master-issue 时] master-issue: #<实际编号>   # 填真实数字，下游 issule-verify 按此精确匹配
 
 ---
 
@@ -83,10 +71,10 @@ emoji: 🔴 主流程阻断 · 🟡 核心缺失 · 🟢 体验提升 · 🔵 �
 
 ## DoD（完成定义）
 
-> 技术层面，必须满足
+> 技术层面，必须满足（命令按项目技术栈替换，非 TS/JS 项目不要照抄下面两条）
 
-- [ ] tsc --noEmit → 0 errors
-- [ ] npm run lint → 0 warnings
+- [ ] [类型检查命令] → 0 errors（如 tsc --noEmit）
+- [ ] [lint 命令] → 0 warnings（如 npm run lint）
 - [ ] [其他技术条件]
 
 ---
@@ -141,7 +129,9 @@ MILESTONE_NUM=$(gh api repos/$REPO/milestones \
 调用 `mcp__github__create_issue`：
 - title: Step 2 锁定标题
 - body: Step 3 内容
-- labels: `["child-issue"]`（solo 场景用 `["solo"]`）
+- labels: **结构标签 + 业务标签**
+  - 结构标签（体系骨架，固定）：有 master → `child-issue`；solo → `solo`
+  - 业务标签（活的，可选）：`--label` 指定的，0 或多个，供 `/cursor --label X`、`/issule-verify --label X` 批量串联
 - milestone: 今天日期
 
 输出：
