@@ -1,13 +1,13 @@
 # batch-issue — PRD → 批量 child-issues
 
-读取 master-issue 的 PRD，拆解为原子 child-issues，每个含 AC + DoD + T1/T2/T3。
+读取 prd-issue 的 PRD，拆解为原子 child-issues，每个含 AC + DoD + T1/T2/T3。
 **所有字段由 agent 自动生成，人只确认列表。**
 等人确认后执行 /cursor。
 
 ## 使用方式
 
 ```
-/batch-issue #N          # 从 master-issue #N 批量生成 child-issues
+/batch-issue #N          # 从 prd-issue #N 批量生成 child-issues
 /batch-issue #N <repo>   # 指定仓库
 /batch-issue #N dry      # 只输出拆解草稿，不创建 issue
 ```
@@ -16,9 +16,9 @@
 
 ## 执行协议
 
-### Step 1 — 读取 master-issue PRD
+### Step 1 — 读取 prd-issue PRD
 
-调用 `mcp__github__get_issue` 读取 master-issue body。
+调用 `mcp__github__get_issue` 读取 prd-issue body。
 
 提取：
 - 目标（一句话）
@@ -39,7 +39,7 @@
 输出草稿（先给人看，确认后才创建）：
 
 ```
-拟创建 N 个 child-issues（来自 master-issue #M）：
+拟创建 N 个 child-issues（来自 prd-issue #M）：
 
 #1  [emoji] [type]: [描述]
     AC: [功能验收条件]
@@ -85,7 +85,17 @@ MILESTONE_NUM=$(gh api repos/$REPO/milestones \
 
 [一句话，极限精确]
 
-master-issue: #[N]
+prd-issue: #[N]
+
+---
+
+## 上下文（Cursor 必读，拿到即可跑）
+
+> 技术栈：[从 CLAUDE.md 提取，如 Next.js 15 + Supabase + Hono :4000]
+> 关键约束：[硬限制，如"不改 RLS"、"只动 backend/ 目录"、"不破坏现有接口"]
+> 相关文件：[必须参考的路径+行号，如 lib/learn.ts:42]
+> 依赖：[前置 issue #N 已完成后才能跑，无则写"无"]
+> 不做：[明确排除项] — 原因：[为什么]
 
 ---
 
@@ -124,6 +134,9 @@ master-issue: #[N]
 ## 边界
 
 不做：[out of scope] — 原因：[为什么]
+
+---
+> 🤖 由 /batch-issue 生成 · [YYYY-MM-DD]
 ```
 
 - labels: `["child-issue"]`
@@ -133,7 +146,7 @@ master-issue: #[N]
 
 ### Step 5 — 输出汇总
 
-在 master-issue 写入 comment：
+在 prd-issue 写入 comment：
 ```markdown
 ## Child Issues 已创建
 
@@ -142,7 +155,19 @@ master-issue: #[N]
 | 1 | #[N1] [title] | 待执行 |
 | 2 | #[N2] [title] | 待执行 |
 
-**下一步：** `/cursor --label child-issue` 或 `/cursor #N1 #N2 ...`
+**并发分组（依赖列为空=可并发，有依赖=串行）：**
+
+| 分组 | Issues | 派发方式 |
+|------|--------|---------|
+| 可并发 | #N1, #N2, #N3（无相互依赖） | `/cursor #N1 #N2 #N3` |
+| 串行 | #N4 依赖 #N1 | 等 #N1 验收后再 `/cursor #N4` |
+
+**下一步：**
+- 并发跑：`/cursor #N1 #N2 #N3`
+- 执行完验收：`/issule-verify #N1 #N2 #N3`
+
+---
+> 🤖 由 /batch-issue 生成 · [YYYY-MM-DD]
 ```
 
 终端输出：
@@ -162,10 +187,10 @@ master-issue: #[N]
 | 检查项 | 预期结果 |
 |--------|---------|
 | 先输出草稿 | 创建前展示完整列表，等人确认 |
-| child-issue 结构 | 含 AC + DoD + T1/T2/T3 + master-issue 引用 |
+| child-issue 结构 | 含 AC + DoD + T1/T2/T3 + prd-issue 引用 |
 | T1 覆盖率 | 每条 AC 至少对应一条 T1 命令 |
 | T3 节制 | 能写 T1 的不写 T3 |
 | label | child-issue |
 | milestone | 今天日期 |
-| master-issue comment | 写入 child 清单 |
+| prd-issue comment | 写入 child 清单 |
 | dry 模式 | 只输出草稿，不创建任何 issue |

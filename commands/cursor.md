@@ -120,6 +120,9 @@ BODY=$(gh issue view $NUM --repo "$REPO" --json comments --jq '.comments[-1].bod
 
 - 全部通过 → `/issule-verify #N #M`
 - 有失败 → `/cursor #失败编号` 重跑
+
+---
+> 🤖 由 /cursor 生成 · YYYY-MM-DD
 ```
 
 **labels：** `[RESULT_LABEL]`（即 `result-${来源标签}`，按标签执行时动态生成；单号执行时固定为 `result-cursor`）

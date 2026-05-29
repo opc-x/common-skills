@@ -1,100 +1,106 @@
-# research — 并行调研，产出 research-issue
+# research — 并行调研，产出 research.md
 
-输入问题域描述，并行多源调研，结果写入 GitHub research-issue comment，等人确认进入 /prd。
+输入问题域描述，并行多源调研，结果写入 `.opc/tmp/[主题]/research.md`，你 QC 后可选开 research-issue。
 
 ## 使用方式
 
 ```
-/research "问题域描述"           # 创建 research-issue + 开始调研
-/research "描述" <repo>          # 指定仓库
-/research "描述" dry             # 只输出调研草稿，不创建 issue
+/research "问题域描述"           # 调研，结果写本地文件
+/research "描述" --issue         # 调研完后额外开 research-issue
+/research "描述" <repo>          # 指定仓库（配合 --issue 用）
+/research "描述" dry             # 只输出草稿到终端，不写文件
 ```
 
 ---
 
 ## 执行协议
 
-### Step 1 — 创建 research-issue
+### Step 1 — 初始化工作目录
 
-```bash
-TODAY=$(date +%Y-%m-%d)
-MILESTONE_NUM=$(gh api repos/$REPO/milestones \
-  --jq ".[] | select(.title==\"$TODAY\") | .number")
-[ -z "$MILESTONE_NUM" ] && MILESTONE_NUM=$(gh api repos/$REPO/milestones \
-  -X POST -f title="$TODAY" --jq ".number")
+根据问题域描述提取主题名（kebab-case，≤4个词），创建：
+
+```
+.opc/tmp/[主题]/research.md
 ```
 
-调用 `mcp__github__create_issue`：
-- title: `🔵 research: [问题域描述（≤20字）]`
-- body: `## 问题域\n\n[描述]\n\n## 调研进行中...\n`
-- labels: `["research-issue"]`
-- milestone: 今天日期
-
-输出：`🔵 research-issue #N 已创建，开始并行调研...`
+若 `.opc/tmp/[主题]/` 已存在（上次调研残留），继续追加，不覆盖。
 
 ---
 
 ### Step 2 — 并行调研（多源）
 
-同时启动以下调研，结果合并后一次性 POST：
+同时启动以下调研，结果合并后写入文件：
 
-**源 A — /browser 公开信息**
+**源 A — 公开信息**
 - 搜索问题域相关技术文档、最佳实践、竞品方案
 - 提取核心结论，不复制大段原文
 
-**源 B — /gh 历史 issues/PR**
+**源 B — GitHub 历史 issues/PR**
 ```bash
 gh issue list --repo $REPO --state all --search "[关键词]" --json number,title,body
 gh pr list --repo $REPO --state all --search "[关键词]" --json number,title,body
 ```
 - 提取历史上相关的决策和结论
 
-**源 C — 当前代码库上下文**
+**源 C — 当前代码库**
 ```bash
-find . -type f -name "*.ts" -o -name "*.tsx" | head -20
-grep -r "[关键词]" --include="*.ts" -l
+grep -r "[关键词]" --include="*.ts" --include="*.tsx" -l
 ```
-- 提取相关现有实现
+- 提取相关现有实现，记录文件路径+行号
 
 **源 D — 用户补充输入（如有）**
-- 若用户在描述中包含额外信息，结构化提取
+- 结构化提取用户描述中的额外信息
 
 ---
 
-### Step 3 — POST 调研报告到 issue comment
+### Step 3 — 写入 research.md
 
 ```markdown
-## 调研报告
+# [主题] 调研报告
 
-**调研时间：** [timestamp]
-**信息源：** /browser · GitHub历史 · 代码库
+> 🤖 由 /research 生成 · [YYYY-MM-DD]
+> 下一步：QC 完成后 → `/prd --from .opc/tmp/[主题]/`
 
 ---
 
-### 关键发现
+## 问题域
+
+[一句话描述要解决的问题]
+
+---
+
+## 关键发现
 
 [按重要性排列，每条一句话结论]
 
-### 现有方案/竞品
+---
 
-[对比表格]
+## 现有方案/竞品对比
 
-### 代码库现状
-
-[相关现有实现，文件路径]
-
-### 风险/注意点
-
-[潜在问题]
+| 方案 | 优点 | 缺点 | 是否适用 |
+|------|------|------|---------|
+| [方案A] | ... | ... | ✅/❌ |
 
 ---
 
-**建议下一步：** `/prd #N` 基于以上调研生成 PRD
-```
+## 代码库现状
 
-POST 命令：
-```bash
-gh api repos/$REPO/issues/$N/comments -X POST -f body="$REPORT"
+| 文件 | 行号 | 说明 |
+|------|------|------|
+| [path/file.ts] | L42 | [现有实现描述] |
+
+---
+
+## 风险/注意点
+
+- [风险1]
+- [风险2]
+
+---
+
+## 建议方向
+
+[基于调研给出 1-2 个可行方向，供 /prd 决策用]
 ```
 
 ---
@@ -103,13 +109,31 @@ gh api repos/$REPO/issues/$N/comments -X POST -f body="$REPORT"
 
 输出：
 ```
-🔔 research-issue #N 调研完成
+🔔 调研完成 → .opc/tmp/[主题]/research.md
 
-建议：确认调研内容后执行 → /prd #N
-若需补充调研：继续描述，我继续写入 comment
+QC 完后执行：/prd --from .opc/tmp/[主题]/
+需要补充调研：继续描述，我继续追加到文件
+需要开 issue 存档：/research "描述" --issue
 ```
 
 等待用户确认，不自动进入 /prd。
+
+---
+
+### Step 5 — 可选：开 research-issue（仅 --issue 时）
+
+用户明确要求时才执行：
+
+调用 `mcp__github__create_issue`：
+- title: `🔵 research: [主题（≤20字）]`
+- body: research.md 全文
+- labels: `["research-issue"]`
+- milestone: 今天日期
+
+```
+✅ research-issue #N 已创建
+→ 文件已存档到 GitHub，本地 .opc/tmp/[主题]/research.md 可保留或删除
+```
 
 ---
 
@@ -117,7 +141,9 @@ gh api repos/$REPO/issues/$N/comments -X POST -f body="$REPORT"
 
 | 检查项 | 预期结果 |
 |--------|---------|
-| research-issue 创建 | label=research-issue，milestone=今天 |
-| 调研报告 comment | 包含关键发现、对比、代码库现状三节 |
-| 🔔 确认点 | 明确告知下一步是 /prd #N |
-| dry 模式 | 只输出草稿，不创建 issue |
+| 文件位置 | `.opc/tmp/[主题]/research.md` |
+| 四源调研 | 关键发现/对比/代码库现状/风险四节齐全 |
+| 署名 | 文件头部含 `🤖 由 /research 生成` |
+| 🔔 确认点 | 告知下一步是 `/prd --from` |
+| --issue 模式 | 才开 research-issue，默认不开 |
+| dry 模式 | 只输出到终端，不写文件不开 issue |
